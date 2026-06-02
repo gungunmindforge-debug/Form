@@ -14,14 +14,6 @@
   }
 }
 
-/* Custom transitions and scrollbar improvements */
-@layer base {
-  html {
-    scroll-behavior: smooth;
-    font-family: var(--font-sans);
-  }
-}
-
 /* Custom sleek keyframe animation for card entrances */
 @keyframes slideUp {
   from {

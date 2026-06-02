@@ -31,22 +31,13 @@ export default function AdminView({ submissions, onDeleteSubmission, onEditSubmi
   });
 
   // Supabase Live Sync Monitor State
-  const [supabaseConfig, setSupabaseConfig] = useState<{
-    isConfigured: boolean;
-    supabaseUrl: string | null;
-    hasAnonKey: boolean;
-  } | null>(null);
+  const supabaseConfig = {
+    isConfigured: Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY),
+    supabaseUrl: import.meta.env.VITE_SUPABASE_URL || null,
+    hasAnonKey: Boolean(import.meta.env.VITE_SUPABASE_ANON_KEY),
+  };
   const [copiedSql, setCopiedSql] = useState(false);
   const [showSetupGuide, setShowSetupGuide] = useState(false);
-
-  React.useEffect(() => {
-    if (isUnlocked) {
-      fetch('/api/supabase-config')
-        .then(res => res.json())
-        .then(data => setSupabaseConfig(data))
-        .catch(err => console.error('[Client] Error checking Supabase configuration:', err));
-    }
-  }, [isUnlocked]);
 
   // Filters & sorting state
   const [searchQuery, setSearchQuery] = useState('');
@@ -292,7 +283,7 @@ export default function AdminView({ submissions, onDeleteSubmission, onEditSubmi
         </div>
       </div>
 
-      {/* SUPABASE CLOUD INTEGRATION HUB \
+      {/* SUPABASE CLOUD INTEGRATION HUB */}
       <section className="bg-white border border-slate-200/65 rounded-2xl p-5 shadow-xs space-y-4" id="supabase-collaboration-hub">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div className="flex items-center space-x-3">
@@ -442,7 +433,7 @@ export default function AdminView({ submissions, onDeleteSubmission, onEditSubmi
             </div>
           </div>
         )}
-      </section> */}
+      </section> 
 
       {/* Filter Options Sector & Search bar */}
       <section className="bg-white border border-slate-200/65 rounded-2xl p-4 space-y-4 shadow-xs" id="admin-filter-console">

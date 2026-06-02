@@ -8,6 +8,8 @@ import NotFoundView from './components/NotFoundView';
 import SubmitSuccessView from './components/SubmitSuccessView';
 
 import { Submission, ActivePage, DashboardStats, SubmissionStatus } from './types';
+import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
+import { INITIAL_SEEDED_SUBMISSIONS } from './mockData';
 
 export default function App() {
   // Navigation active route
@@ -29,16 +31,35 @@ export default function App() {
   useEffect(() => {
     async function loadData() {
       setBackendError(null);
+
+      if (!isSupabaseConfigured) {
+        setSubmissions(INITIAL_SEEDED_SUBMISSIONS);
+        return;
+      }
+
       try {
-        const res = await fetch('/api/submissions');
-        if (!res.ok) {
-          throw new Error(`Failed to load submissions (HTTP ${res.status})`);
+        const { data, error } = await supabase.from('submissions').select('*');
+        if (error) {
+          throw error;
         }
-        const data = await res.json();
-        setSubmissions(data);
+
+        const mapped = (data ?? []).map((item) => ({
+          id: item.id || '',
+          name: item.name || '',
+          email: item.email || '',
+          phone: item.phone || '',
+          subject: item.subject || '',
+          category: item.category || 'Billing',
+          priority: item.priority || 'Low',
+          description: item.description || '',
+          status: item.status || 'New',
+          createdAt: item.createdAt || item.created_at || item.createdat || new Date().toISOString(),
+        }));
+
+        setSubmissions(mapped);
       } catch (err: any) {
         setBackendError(err?.message ?? 'Backend unavailable');
-        setSubmissions([]);
+        setSubmissions(INITIAL_SEEDED_SUBMISSIONS);
       }
     }
 
@@ -52,65 +73,99 @@ export default function App() {
 
   // 1. ADD: Submission form handler
   const handleAddNewSubmission = async (newSubData: Omit<Submission, 'id' | 'createdAt' | 'status'>) => {
-
     const fallbackId = `sub-${Math.random().toString(36).substring(2, 11)}`;
     const newSubmission: Submission = {
       ...newSubData,
       id: fallbackId,
       createdAt: new Date().toISOString(),
-      status: 'New'
+      status: 'New',
     };
 
-    // Optimistic UI Update
-    setSubmissions(prev => [newSubmission, ...prev]);
+    setSubmissions((prev) => [newSubmission, ...prev]);
 
-    try {
-      const res = await fetch('/api/submissions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newSubData)
-      });
-      if (res.ok) {
-        const saved = await res.json();
-        setSubmissions(prev => {
-        const filtered = prev.filter(s => s.id !== fallbackId);
-          const updated = [saved, ...filtered];
-          return updated;
-        });
-        return;
-      }
-    } catch (err) {
-      console.warn('API POST failed, using offline fallback schema:', err);
+    if (!isSupabaseConfigured) {
+      return;
     }
 
-    // Finalize standard storage in case API failed
-    setSubmissions(prev => prev);
+    try {
+      const { data, error } = await supabase.from('submissions').insert([newSubmission]).select();
+      if (!error && data && data.length > 0) {
+        const saved = data[0];
+        const mapped: Submission = {
+          id: saved.id || newSubmission.id,
+          name: saved.name || newSubmission.name,
+          email: saved.email || newSubmission.email,
+          phone: saved.phone || newSubmission.phone,
+          subject: saved.subject || newSubmission.subject,
+          category: saved.category || newSubmission.category,
+          priority: saved.priority || newSubmission.priority,
+          description: saved.description || newSubmission.description,
+          status: saved.status || newSubmission.status,
+          createdAt: saved.createdAt || saved.created_at || newSubmission.createdAt,
+        };
+
+        setSubmissions((prev) => [mapped, ...prev.filter((s) => s.id !== fallbackId)]);
+        return;
+      }
+
+      if (error) {
+        throw error;
+      }
+    } catch (err: any) {
+      console.warn('Supabase insert failed, keeping local submission:', err?.message ?? err);
+      setBackendError(err?.message ?? 'Failed to save submission to Supabase');
+    }
   };
 
   // 2. DELETE: Remove submission entry
   const handleDeleteSubmission = async (id: string) => {
-    const updated = submissions.filter(sub => sub.id !== id);
+    const updated = submissions.filter((sub) => sub.id !== id);
     saveSubmissions(updated);
 
-    await fetch(`/api/submissions/${id}`, { method: 'DELETE' });
+    if (!isSupabaseConfigured) {
+      return;
+    }
+
+    const { error } = await supabase.from('submissions').delete().eq('id', id);
+    if (error) {
+      console.warn('[Supabase] Delete failed:', error.message);
+      setBackendError(error.message);
+    }
   };
 
   // 3. EDIT: Complete update of elements
   const handleSaveEditedSubmission = async (updatedSub: Submission) => {
-    const updated = submissions.map(sub => sub.id === updatedSub.id ? updatedSub : sub);
+    const updated = submissions.map((sub) => (sub.id === updatedSub.id ? updatedSub : sub));
     saveSubmissions(updated);
     setEditingSubmission(null);
 
-    await fetch(`/api/submissions/${updatedSub.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updatedSub)
-    });
+    if (!isSupabaseConfigured) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from('submissions')
+      .update({
+        name: updatedSub.name,
+        email: updatedSub.email,
+        phone: updatedSub.phone,
+        subject: updatedSub.subject,
+        category: updatedSub.category,
+        priority: updatedSub.priority,
+        description: updatedSub.description,
+        status: updatedSub.status,
+      })
+      .eq('id', updatedSub.id);
+
+    if (error) {
+      console.warn('[Supabase] Update failed:', error.message);
+      setBackendError(error.message);
+    }
   };
 
   // 4. UPDATE STATUS: Quick process change
   const handleUpdateSubmissionStatus = async (id: string, newStatus: SubmissionStatus) => {
-    const updated = submissions.map(sub => {
+    const updated = submissions.map((sub) => {
       if (sub.id === id) {
         return { ...sub, status: newStatus };
       }
@@ -118,11 +173,15 @@ export default function App() {
     });
     saveSubmissions(updated);
 
-    await fetch(`/api/submissions/${id}/status`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: newStatus })
-    });
+    if (!isSupabaseConfigured) {
+      return;
+    }
+
+    const { error } = await supabase.from('submissions').update({ status: newStatus }).eq('id', id);
+    if (error) {
+      console.warn('[Supabase] Status update failed:', error.message);
+      setBackendError(error.message);
+    }
   };
 
   // Live Metric Compiler
@@ -146,7 +205,7 @@ export default function App() {
         <div className="max-w-3xl mx-auto bg-white border border-rose-200 rounded-3xl p-6 text-rose-900">
           <h2 className="font-semibold text-lg">Backend unavailable</h2>
           <p className="text-sm text-rose-700 mt-2">{backendError}</p>
-          <p className="text-xs text-rose-600 mt-3">This app does not use any local fallback storage.</p>
+          <p className="text-xs text-rose-600 mt-3">If Supabase is not configured, the app will continue with local fallback data.</p>
         </div>
       );
     }
